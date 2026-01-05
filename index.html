@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ thống Điểm danh</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .table-scroll { max-height: 500px; overflow: auto; background: white; border-radius: 10px; }
+        thead { position: sticky; top: 0; background: #212529; color: white; z-index: 10; }
+        .card { border-radius: 15px; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .nav-pills .nav-link.active { background-color: #0d6efd; font-weight: bold; }
+    </style>
+</head>
+<body class="container py-4">
+    <h3 class="text-center text-primary mb-4 fw-bold">📋 QUẢN LÝ ĐIỂM DANH & CHUYÊN CẦN</h3>
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-8">
+            <div class="card p-3 d-flex flex-row gap-2">
+                <select class="form-select" id="classFileSelect">
+                    <option value="">-- Chọn Lớp và Môn học --</option>
+                    {% for item in existing_classes %}
+                    <option value="{{ item.id }}">Lớp: {{ item.class }} | Môn: {{ item.subject }}</option>
+                    {% endfor %}
+                </select>
+                <button onclick="loadClassData()" class="btn btn-primary px-4 fw-bold">VÀO LỚP</button>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <button class="btn btn-success w-100 h-100 fw-bold shadow" data-bs-toggle="modal" data-bs-target="#createModal">+ TẠO LỚP MỚI</button>
+        </div>
+    </div>
+
+    <div class="modal fade" id="createModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header"><h5>Cấu hình lớp học mới</h5><button class="btn-close" data-bs-dismiss="modal"></button></div>
+                <div class="modal-body">
+                    <input type="text" id="newClassName" class="form-control mb-3" placeholder="Tên lớp (VD: AI_K6)">
+                    <select class="form-select mb-3" id="newSubjectName">
+                        {% for sub in subjects %}
+                        <option value="{{ sub }}">{{ sub }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="file" id="newClassFile" class="form-control" accept=".xlsx">
+                </div>
+                <div class="modal-footer"><button onclick="createNewClass()" class="btn btn-primary w-100 py-2 fw-bold">KHỞI TẠO</button></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="mainArea" style="display:none;">
+        <ul class="nav nav-pills nav-justified mb-3 bg-white p-1 rounded shadow-sm">
+            <li class="nav-item"><button class="nav-link active" id="btnDD" onclick="switchTab('dd')">📍 ĐIỂM DANH</button></li>
+            <li class="nav-item"><button class="nav-link" id="btnCC" onclick="switchTab('cc')">📊 CHUYÊN CẦN</button></li>
+        </ul>
+
+        <div id="ddView">
+            <div class="table-scroll border">
+                <table class="table table-hover align-middle mb-0"><thead id="hDD"></thead><tbody id="bDD"></tbody></table>
+            </div>
+            <div class="row g-2 mt-3">
+                <div class="col-8"><button onclick="saveData()" class="btn btn-success w-100 py-3 fw-bold shadow">💾 LƯU DỮ LIỆU</button></div>
+                <div class="col-4"><button onclick="downloadExcel()" class="btn btn-outline-primary w-100 py-3 fw-bold shadow">📥 XUẤT FILE</button></div>
+            </div>
+        </div>
+
+        <div id="ccView" style="display:none;">
+            <div class="table-scroll border">
+                <table class="table table-bordered table-striped align-middle mb-0 text-center">
+                    <thead class="table-info"><tr><th>Mã SV</th><th>Họ tên</th><th>Đi học</th><th>Vắng</th><th>Điểm</th><th>Chi tiết vắng</th></tr></thead>
+                    <tbody id="bCC"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentData = [], currentCols = [], keys = {};
+
+        async function createNewClass() {
+            const fd = new FormData();
+            fd.append('class_name', document.getElementById('newClassName').value);
+            fd.append('subject_name', document.getElementById('newSubjectName').value);
+            fd.append('file', document.getElementById('newClassFile').files[0]);
+            const res = await fetch('/create_class', { method: 'POST', body: fd });
+            const result = await res.json();
+            alert(result.message || result.error);
+            location.reload();
+        }
+
+        async function loadClassData() {
+            const id = document.getElementById('classFileSelect').value;
+            if(!id) return;
+            const res = await fetch(`/get_class_data/${id}`);
+            const result = await res.json();
+            currentData = result.data; currentCols = result.columns;
+            keys = { ma: result.key_ma_sv, ten: result.key_ho_ten };
+            document.getElementById('mainArea').style.display = 'block';
+            switchTab('dd');
+        }
+
+        function renderDD() {
+            document.getElementById('hDD').innerHTML = `<tr>${currentCols.map(c => `<th>${c}</th>`).join('')}</tr>`;
+            document.getElementById('bDD').innerHTML = currentData.map((row, i) => `
+                <tr>${currentCols.map(c => c.includes('/') ? 
+                    `<td><input type="checkbox" style="width:22px;height:22px" ${row[c]?'checked':''} onchange="currentData[${i}]['${c}']=this.checked"></td>` : 
+                    `<td>${row[c]||''}</td>`).join('')}</tr>`).join('');
+        }
+
+        function renderCC() {
+            const dates = currentCols.filter(c => c.includes('/'));
+            document.getElementById('bCC').innerHTML = currentData.map(row => {
+                let p = 0, v = [];
+                dates.forEach(d => { if(row[d] === true || row[d] === "X") p++; else v.push(d); });
+                let s = dates.length > 0 ? (p/dates.length*10).toFixed(1) : "0.0";
+                return `<tr><td>${row[keys.ma]}</td><td class="text-start">${row[keys.ten]}</td><td>${p}</td><td class="text-danger">${v.length}</td><td class="fw-bold text-primary">${s}</td><td class="small text-muted">${v.join(', ')}</td></tr>`;
+            }).join('');
+        }
+
+        function switchTab(t) {
+            document.getElementById('ddView').style.display = t === 'dd' ? 'block' : 'none';
+            document.getElementById('ccView').style.display = t === 'cc' ? 'block' : 'none';
+            document.getElementById('btnDD').classList.toggle('active', t === 'dd');
+            document.getElementById('btnCC').classList.toggle('active', t === 'cc');
+            if(t === 'dd') renderDD(); else renderCC();
+        }
+
+        async function saveData() {
+            const res = await fetch('/save_class_data', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ file_id: document.getElementById('classFileSelect').value, data: currentData })
+            });
+            const r = await res.json(); alert(r.message);
+        }
+
+        function downloadExcel() {
+            const id = document.getElementById('classFileSelect').value;
+            if(id) window.location.href = `/download/${id}`;
+        }
+    </script>
+</body>
+</html>
